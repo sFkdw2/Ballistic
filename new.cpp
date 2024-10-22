@@ -13,6 +13,7 @@
 #include "worker.hpp"
 
 #include "utils/resource.h"
+#include "LogReader.hpp"
 
 std::vector<std::uintptr_t> functions::GetChildrenAddresses(std::uintptr_t address, HANDLE handle) {
     std::vector<std::uintptr_t> children;
@@ -253,8 +254,8 @@ RBXClient::RBXClient(DWORD processID) :
     replaceString(clientScript, "%XENO_UNIQUE_ID%", GUID);
     replaceString(clientScript, "%XENO_VERSION%", Xeno_Version);
 
-    const std::string PatchScriptSource = "--!native\n--!optimize 1\n--!nonstrict\nlocal a={}local b=game:GetService(\"ContentProvider\")local function c(d)local e,f=d:find(\"%.\")local g=d:sub(f+1)if g:sub(-1)~=\"/\"then g=g..\"/\"end;return g end;local d=b.BaseUrl;local g=c(d)local h=string.format(\"https://games.%s\",g)local i=string.format(\"https://apis.rcs.%s\",g)local j=string.format(\"https://apis.%s\",g)local k=string.format(\"https://accountsettings.%s\",g)local l=string.format(\"https://gameinternationalization.%s\",g)local m=string.format(\"https://locale.%s\",g)local n=string.format(\"https://users.%s\",g)local o={GAME_URL=h,RCS_URL=i,APIS_URL=j,ACCOUNT_SETTINGS_URL=k,GAME_INTERNATIONALIZATION_URL=l,LOCALE_URL=m,ROLES_URL=n}setmetatable(a,{__newindex=function(p,q,r)end,__index=function(p,r)return o[r]end})return a";
-
+    const std::string PatchScriptSource = "--!native\n--!optimize 1\n--!nonstrict\nlocal a={}local b=game:GetService(\"ContentProvider\")local function c(d)local e,f=d:find(\"%.\")local g=d:sub(f+1)if[...]
+    
     if (DataModel.Name() == "App") { // In home page
         PatchScript->SetBytecode(Compile("coroutine.wrap(function(...)" + clientScript + "\nend)();" + PatchScriptSource));
         return;
@@ -330,7 +331,7 @@ RBXClient::RBXClient(DWORD processID) :
     VRNavigation->UnlockModule();
     write_memory<std::uintptr_t>(PlayerListManager->Self() + offsets::This, VRNavigation->Self(), handle);
 
-    VRNavigation->SetBytecode(Compile("script.Parent=nil;coroutine.wrap(function(...)" + clientScript + "\nend)();while wait(9e9) do wait(9e9);end"), true); // Need to add a while loop otherwise the script will return and stop the thread
+    VRNavigation->SetBytecode(Compile("script.Parent=nil;coroutine.wrap(function(...)" + clientScript + "\nend)();while wait(9e9) do wait(9e9);end"), true); // Need to add a while loop otherwise the s[...
     PatchScript->SetBytecode(Compile("coroutine.wrap(function(...)" + clientScript + "\nend)();" + PatchScriptSource)); // For later use (when player leaves game/teleports)
 
     std::thread([clientHWND]() {
@@ -384,7 +385,7 @@ void RBXClient::execute(const std::string& source) const {
     if (!xenoModule)
         return;
 
-    xenoModule->SetBytecode(Compile("return {['x e n o']=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.info(1,'f')))do s(i, v)end;setmetatable(getgenv(),{__newindex=function(t,i,v)rawset(t,i,v)s(i,v)end})end;" + source +"\nend}"), true);
+    xenoModule->SetBytecode(Compile("return {['x e n o']=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.[...]
     
     xenoModule->UnlockModule();
 }
@@ -405,15 +406,14 @@ bool RBXClient::loadstring(const std::string& source, const std::string& script_
     if (!cloned_module)
         return false;
 
-    cloned_module->SetBytecode(Compile("return{[ [[" + chunk_name + "]] ]=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.info(1,'f')))do s(i, v)end;setmetatable(getgenv and getgenv()or{},{__newindex=function(t,i,v)rawset(t,i,v)s(i,v)end})end;" + source + "\nend}"), true);
-
+    cloned_module->SetBytecode(Compile("return{[ [[" + chunk_name + "]] ]=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pai[...
+    
     cloned_module->UnlockModule();
 
     return true;
 }
 
-std::uintptr_t RBXClient::GetObjectValuePtr(const std::string_view objectval_name) const
-{
+std::uintptr_t RBXClient::GetObjectValuePtr(const std::string_view objectval_name) const {
     std::uintptr_t dataModel_Address = FetchDataModel();
 
     Instance DataModel(dataModel_Address, handle);
@@ -533,3 +533,163 @@ std::uintptr_t GetRV(HANDLE handle)
     return 0;
 }
 
+static std::string compress(const std::string_view bytecode)
+{
+    const auto data_size = bytecode.size();
+    const auto max_size = ZSTD_compressBound(data_size);
+    auto buffer = std::vector<char>(max_size + 8);
+
+    strcpy_s(&buffer[0], buffer.capacity(), "RSB1");
+    memcpy_s(&buffer[4], buffer.capacity(), &data_size, sizeof(data_size));
+
+    const auto compressed_size = ZSTD_compress(&buffer[8], max_size, bytecode.data(), data_size, ZSTD_maxCLevel());
+    if (ZSTD_isError(compressed_size))
+        return "";
+
+    const auto size = compressed_size + 8;
+    const auto key = XXH32(buffer.data(), size, 42u);
+    const auto bytes = reinterpret_cast<const uint8_t*>(&key);
+
+    for (auto i = 0u; i < size; ++i)
+        buffer[i] ^= bytes[i % 4] + i * 41u;
+
+    return std::string(buffer.data(), size);
+}
+
+std::string decompress(const std::string_view compressed) {
+    const uint8_t bytecodeSignature[4] = { 'R', 'S', 'B', '1' };
+    const int bytecodeHashMultiplier = 41;
+    const int bytecodeHashSeed = 42;
+
+    if (compressed.size() < 8)
+        return "Compressed data too short";
+
+    std::vector<uint8_t> compressedData(compressed.begin(), compressed.end());
+    std::vector<uint8_t> headerBuffer(4);
+
+    for (size_t i = 0; i < 4; ++i) {
+        headerBuffer[i] = compressedData[i] ^ bytecodeSignature[i];
+        headerBuffer[i] = (headerBuffer[i] - i * bytecodeHashMultiplier) % 256;
+    }
+
+    for (size_t i = 0; i < compressedData.size(); ++i) {
+        compressedData[i] ^= (headerBuffer[i % 4] + i * bytecodeHashMultiplier) % 256;
+    }
+
+    uint32_t hashValue = 0;
+    for (size_t i = 0; i < 4; ++i) {
+        hashValue |= headerBuffer[i] << (i * 8);
+    }
+
+    uint32_t rehash = XXH32(compressedData.data(), compressedData.size(), bytecodeHashSeed);
+    if (rehash != hashValue)
+        return "Hash mismatch during decompression";
+
+    uint32_t decompressedSize = 0;
+    for (size_t i = 4; i < 8; ++i) {
+        decompressedSize |= compressedData[i] << ((i - 4) * 8);
+    }
+
+    compressedData = std::vector<uint8_t>(compressedData.begin() + 8, compressedData.end());
+    std::vector<uint8_t> decompressed(decompressedSize);
+
+    size_t const actualDecompressedSize = ZSTD_decompress(decompressed.data(), decompressedSize, compressedData.data(), compressedData.size());
+    if (ZSTD_isError(actualDecompressedSize))
+        return "ZSTD decompression error: " + std::string(ZSTD_getErrorName(actualDecompressedSize));
+
+    decompressed.resize(actualDecompressedSize);
+    return std::string(decompressed.begin(), decompressed.end());
+}
+
+std::string compilable(const std::string& source, bool returnBytecode) {
+    static bytecode_encoder_t encoder = bytecode_encoder_t();
+    std::string bytecode = Luau::compile(source, {}, {}, &encoder);
+    if (bytecode[0] == '\0') {
+        bytecode.erase(std::remove(bytecode.begin(), bytecode.end(), '\0'), bytecode.end());
+        return bytecode;
+    }
+    if (returnBytecode) {
+        return bytecode;
+    }
+    return "success";
+}
+
+std::string Compile(const std::string& source)
+{
+    static bytecode_encoder_t encoder = bytecode_encoder_t();
+    const std::string bytecode = Luau::compile(source, {}, {}, &encoder);
+
+    if (bytecode[0] == '\0') {
+        std::string bytecodeP = bytecode;
+        bytecodeP.erase(std::remove(bytecodeP.begin(), bytecodeP.end(), '\0'), bytecodeP.end());
+        std::cerr << "Byecode compile failed: " << bytecodeP << std::endl;
+    }
+
+    return compress(bytecode);
+}
+
+static BOOL CALLBACK EnumWindowsProcMy(HWND hwnd, LPARAM lParam)
+{
+    DWORD lpdwProcessId;
+    GetWindowThreadProcessId(hwnd, &lpdwProcessId);
+
+    std::pair<DWORD, HWND*>* params = reinterpret_cast<std::pair<DWORD, HWND*>*>(lParam);
+    DWORD targetProcessId = params->first;
+    HWND* resultHWND = params->second;
+
+    if (lpdwProcessId == targetProcessId)
+    {
+        *resultHWND = hwnd;
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
+HWND GetHWNDFromPID(DWORD process_id) {
+    HWND hwnd = nullptr;
+    std::pair<DWORD, HWND*> params(process_id, &hwnd);
+
+    EnumWindows(EnumWindowsProcMy, reinterpret_cast<LPARAM>(&params));
+
+    return hwnd;
+}
+
+template<typename T>
+T read_memory(std::uintptr_t address, HANDLE handle)
+{
+    T value = 0;
+    MEMORY_BASIC_INFORMATION bi;
+
+    VirtualQueryEx(handle, reinterpret_cast<LPCVOID>(address), &bi, sizeof(bi));
+
+    NtReadVirtualMemory(handle, reinterpret_cast<LPCVOID>(address), &value, sizeof(value), nullptr);
+
+    PVOID baddr = bi.AllocationBase;
+    SIZE_T size = bi.RegionSize;
+    NtUnlockVirtualMemory(handle, &baddr, &size, 1);
+
+    return value;
+}
+
+template <typename T>
+bool write_memory(std::uintptr_t address, const T& value, HANDLE handle)
+{
+    SIZE_T bytesWritten;
+    DWORD oldProtection;
+
+    if (!VirtualProtectEx(handle, reinterpret_cast<LPVOID>(address), sizeof(value), PAGE_READWRITE, &oldProtection)) {
+        return false;
+    }
+
+    if (NtWriteVirtualMemory(handle, reinterpret_cast<PVOID>(address), (PVOID)&value, sizeof(value), &bytesWritten) || bytesWritten != sizeof(value)) {
+        return false;
+    }
+
+    DWORD d;
+    if (!VirtualProtectEx(handle, reinterpret_cast<LPVOID>(address), sizeof(value), oldProtection, &d)) {
+        return false;
+    }
+
+    return true;
+}
