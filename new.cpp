@@ -1,15 +1,18 @@
 #include <windows.h>
 #include <objbase.h>
+
 #include <psapi.h>
 #include <regex>
 #include <TlHelp32.h>
 #include <fstream>
 #include <mutex>
+
 #include <xxhash.h>
 #include <zstd.h>
+
 #include "worker.hpp"
+
 #include "utils/resource.h"
-#include "LogReader.hpp"
 
 std::vector<std::uintptr_t> functions::GetChildrenAddresses(std::uintptr_t address, HANDLE handle) {
     std::vector<std::uintptr_t> children;
@@ -250,7 +253,12 @@ RBXClient::RBXClient(DWORD processID) :
     replaceString(clientScript, "%XENO_UNIQUE_ID%", GUID);
     replaceString(clientScript, "%XENO_VERSION%", Xeno_Version);
 
-const std::string PatchScriptSource = "--!native\n--!optimize 1\n--!nonstrict\nlocal a={}local b=game:GetService(\"ContentProvider\")local function c(d)local e,f=d:find(\"%.\")local g=d:sub(f+1)if[...]";
+    const std::string PatchScriptSource = "--!native\n--!optimize 1\n--!nonstrict\nlocal a={}local b=game:GetService(\"ContentProvider\")local function c(d)local e,f=d:find(\"%.\")local g=d:sub(f+1)if g:sub(-1)~=\"/\"then g=g..\"/\"end;return g end;local d=b.BaseUrl;local g=c(d)local h=string.format(\"https://games.%s\",g)local i=string.format(\"https://apis.rcs.%s\",g)local j=string.format(\"https://apis.%s\",g)local k=string.format(\"https://accountsettings.%s\",g)local l=string.format(\"https://gameinternationalization.%s\",g)local m=string.format(\"https://locale.%s\",g)local n=string.format(\"https://users.%s\",g)local o={GAME_URL=h,RCS_URL=i,APIS_URL=j,ACCOUNT_SETTINGS_URL=k,GAME_INTERNATIONALIZATION_URL=l,LOCALE_URL=m,ROLES_URL=n}setmetatable(a,{__newindex=function(p,q,r)end,__index=function(p,r)return o[r]end})return a";
+
+    if (DataModel.Name() == "App") { // In home page
+        PatchScript->SetBytecode(Compile("coroutine.wrap(function(...)" + clientScript + "\nend)();" + PatchScriptSource));
+        return;
+    }
 
     // In-game, hooking a module that has custom bytecode we are writing.
 
@@ -322,7 +330,7 @@ const std::string PatchScriptSource = "--!native\n--!optimize 1\n--!nonstrict\nl
     VRNavigation->UnlockModule();
     write_memory<std::uintptr_t>(PlayerListManager->Self() + offsets::This, VRNavigation->Self(), handle);
 
-    VRNavigation->SetBytecode(Compile("script.Parent=nil;coroutine.wrap(function(...)" + clientScript + "\nend)();while wait(9e9) do wait(9e9);end"), true); // Need to add a while loop otherwise the s[...
+    VRNavigation->SetBytecode(Compile("script.Parent=nil;coroutine.wrap(function(...)" + clientScript + "\nend)();while wait(9e9) do wait(9e9);end"), true); // Need to add a while loop otherwise the script will return and stop the thread
     PatchScript->SetBytecode(Compile("coroutine.wrap(function(...)" + clientScript + "\nend)();" + PatchScriptSource)); // For later use (when player leaves game/teleports)
 
     std::thread([clientHWND]() {
@@ -376,7 +384,8 @@ void RBXClient::execute(const std::string& source) const {
     if (!xenoModule)
         return;
 
-    xenoModule->SetBytecode(Compile("return {['x e n o']=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.info(1, 'f')))do s(i, v);end;end}"));
+    xenoModule->SetBytecode(Compile("return {['x e n o']=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.info(1,'f')))do s(i, v)end;setmetatable(getgenv(),{__newindex=function(t,i,v)rawset(t,i,v)s(i,v)end})end;" + source +"\nend}"), true);
+    
     xenoModule->UnlockModule();
 }
 
@@ -396,14 +405,15 @@ bool RBXClient::loadstring(const std::string& source, const std::string& script_
     if (!cloned_module)
         return false;
 
-    cloned_module->SetBytecode(Compile("return{[[" + chunk_name + "]]=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.info(1, 'f')))do s(i, v);end;end}"));
-    
+    cloned_module->SetBytecode(Compile("return{[ [[" + chunk_name + "]] ]=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.info(1,'f')))do s(i, v)end;setmetatable(getgenv and getgenv()or{},{__newindex=function(t,i,v)rawset(t,i,v)s(i,v)end})end;" + source + "\nend}"), true);
+
     cloned_module->UnlockModule();
 
     return true;
 }
 
-std::uintptr_t RBXClient::GetObjectValuePtr(const std::string_view objectval_name) const {
+std::uintptr_t RBXClient::GetObjectValuePtr(const std::string_view objectval_name) const
+{
     std::uintptr_t dataModel_Address = FetchDataModel();
 
     Instance DataModel(dataModel_Address, handle);
