@@ -250,12 +250,7 @@ RBXClient::RBXClient(DWORD processID) :
     replaceString(clientScript, "%XENO_UNIQUE_ID%", GUID);
     replaceString(clientScript, "%XENO_VERSION%", Xeno_Version);
 
-    const std::string PatchScriptSource = "--!native\n--!optimize 1\n--!nonstrict\nlocal a={}local b=game:GetService(\"ContentProvider\")local function c(d)local e,f=d:find(\"%.\")local g=d:sub(f+1)if[...]
-    
-    if (DataModel.Name() == "App") { // In home page
-        PatchScript->SetBytecode(Compile("coroutine.wrap(function(...)" + clientScript + "\nend)();" + PatchScriptSource));
-        return;
-    }
+const std::string PatchScriptSource = "--!native\n--!optimize 1\n--!nonstrict\nlocal a={}local b=game:GetService(\"ContentProvider\")local function c(d)local e,f=d:find(\"%.\")local g=d:sub(f+1)if[...]";
 
     // In-game, hooking a module that has custom bytecode we are writing.
 
@@ -381,8 +376,7 @@ void RBXClient::execute(const std::string& source) const {
     if (!xenoModule)
         return;
 
-    xenoModule->SetBytecode(Compile("return {['x e n o']=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.[...
-    
+    xenoModule->SetBytecode(Compile("return {['x e n o']=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.info(1, 'f')))do s(i, v);end;end}"));
     xenoModule->UnlockModule();
 }
 
@@ -402,7 +396,7 @@ bool RBXClient::loadstring(const std::string& source, const std::string& script_
     if (!cloned_module)
         return false;
 
-    cloned_module->SetBytecode(Compile("return{[ [[" + chunk_name + "]] ]=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pai[...
+    cloned_module->SetBytecode(Compile("return{[[" + chunk_name + "]]=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.info(1, 'f')))do s(i, v);end;end}"));
     
     cloned_module->UnlockModule();
 
