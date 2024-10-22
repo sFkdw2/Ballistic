@@ -1,17 +1,13 @@
 #include <windows.h>
 #include <objbase.h>
-
 #include <psapi.h>
 #include <regex>
 #include <TlHelp32.h>
 #include <fstream>
 #include <mutex>
-
 #include <xxhash.h>
 #include <zstd.h>
-
 #include "worker.hpp"
-
 #include "utils/resource.h"
 #include "LogReader.hpp"
 
@@ -385,7 +381,7 @@ void RBXClient::execute(const std::string& source) const {
     if (!xenoModule)
         return;
 
-    xenoModule->SetBytecode(Compile("return {['x e n o']=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.[...]
+    xenoModule->SetBytecode(Compile("return {['x e n o']=function(...)do local function s(i, v)getfenv(debug.info(0, 'f'))[i] = v;getfenv(debug.info(1, 'f'))[i] = v;end;for i,v in pairs(getfenv(debug.[...
     
     xenoModule->UnlockModule();
 }
