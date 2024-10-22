@@ -13,6 +13,10 @@
 #include "worker.hpp"
 
 #include "utils/resource.h"
+#include "RenderView.hpp"
+#include "LogReader.hpp"
+
+std::unique_ptr<LogReader> LogReader = std::make_unique<LogReader>();
 
 std::vector<std::uintptr_t> functions::GetChildrenAddresses(std::uintptr_t address, HANDLE handle) {
     std::vector<std::uintptr_t> children;
@@ -460,77 +464,7 @@ std::vector<DWORD> GetProcessIDsByName(const std::wstring_view processName) {
 
 std::uintptr_t GetRV(HANDLE handle)
 {
-    std::filesystem::path localAppData = std::filesystem::temp_directory_path().parent_path().parent_path();
-    std::filesystem::path logs = localAppData / "Roblox" / "logs";
-
-    if (!std::filesystem::is_directory(logs)) {
-        std::cerr << "[!] Roblox logs directory not found\n";
-        return 0;
-    }
-
-    int tries = 5;
-    while (tries >= 1) {
-        tries -= 1;
-        std::vector<std::filesystem::path> logFiles;
-
-        for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(logs)) {
-            std::filesystem::path path = entry.path();
-            if (entry.is_regular_file() && path.extension() == ".log")
-                logFiles.push_back(path);
-        }
-
-        if (logFiles.empty()) {
-            std::cerr << "[!] No Roblox log files found\n";
-            return 0;
-        }
-
-        std::sort(logFiles.begin(), logFiles.end(), [](const auto& x, const auto& y) {
-            return std::filesystem::last_write_time(x) > std::filesystem::last_write_time(y);
-        });
-
-        std::vector<std::filesystem::path> lockedFiles;
-        for (const std::filesystem::path& logPath : logFiles) {
-            try {
-                std::filesystem::remove(logPath);
-            } catch (const std::filesystem::filesystem_error& e) {
-                lockedFiles.push_back(logPath);
-            }
-        }
-        if (lockedFiles.empty()) {
-            std::cerr << "[!] No log file is being used by another process\n";
-            return 0;
-        }
-
-        for (const std::filesystem::path& logPath : lockedFiles) {
-            std::ifstream logFile(logPath);
-            if (!logFile.is_open()) {
-                std::cout << "[!] Could not open file " << logPath << "\n";
-                continue;
-            }
-
-            std::string renderview;
-            std::stringstream buffer;
-            buffer << logFile.rdbuf();
-            std::string content = buffer.str();
-
-            std::regex rgx(R"(\bSurfaceController\[_:1\]::initialize view\((.*?)\))");
-            std::smatch match;
-
-            if (std::regex_search(content, match, rgx)) {
-                if (match.size() <= 1)
-                    continue;
-                renderview = match[1].str();
-            }
-
-            std::uintptr_t renderviewAddress = std::strtoull(renderview.c_str(), nullptr, 16);
-            std::uintptr_t fakeDataModel = read_memory<std::uintptr_t>(renderviewAddress + 0x118, handle);
-            if (fakeDataModel != 0)
-                return renderviewAddress;
-        }
-
-        Sleep(1000);
-    }
-    return 0;
+    return RBX::Graphics::RenderView->Get();
 }
 
 static std::string compress(const std::string_view bytecode)
